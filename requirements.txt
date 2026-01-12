@@ -1,0 +1,36 @@
+fastapi==0.109.0
+uvicorn==0.27.0
+python-multipart==0.0.9
+prometheus-client==0.19.0
+httpx==0.26.0
+numpy==1.26.4
+pandas==2.2.0
+scipy==1.11.4
+scikit-learn==1.4.0
+category_encoders==2.6.3
+xgboost==2.0.3
+lightgbm==4.3.0
+shap==0.44.1
+pytest 
+pytest-html 
+httpx
+sentencepiece
+# --- Hugging Face Ecosystem (Unified Updates) ---
+# Transformers 4.40+ requires newer versions of TRL/PEFT/Accelerate
+transformers==4.40.0
+accelerate==0.29.3      # Upgraded from 0.27.2
+bitsandbytes==0.42.0
+sentence-transformers
+faiss-cpu
+
+langchain==0.1.5
+langchain-community==0.0.17
+peft==0.10.0            # Upgraded from 0.8.2
+datasets==2.19.0        # Upgraded from 2.16.1
+trl==0.8.6              # CRITICAL UPGRADE (Fixes the import error)
+huggingface-hub==0.23.0 # Upgraded
+
+# --- Testing ---
+pytest==8.0.0
+protobuf
+rich

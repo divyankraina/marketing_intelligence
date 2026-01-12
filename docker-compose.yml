@@ -1,0 +1,40 @@
+services:
+  marketing-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.gpu
+    
+    image: marketing-prod-v1
+    container_name: marketing_intel_production
+    
+    ports:
+      - "8000:8000"
+    
+    # Persistence
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./hf_cache:/app/hf_cache
+    
+    # GPU Access
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+              
+    environment:
+      - BNB_CUDA_VERSION=121
+      
+    restart: unless-stopped
+    
+    # IMPROVED HEALTHCHECK
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # Grace period for "Day 0" Fine-Tuning (10 minutes)
+      start_period: 2400s
