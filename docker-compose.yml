@@ -30,11 +30,10 @@ services:
       
     restart: unless-stopped
     
-    # IMPROVED HEALTHCHECK
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      # Grace period for "Day 0" Fine-Tuning (10 minutes)
+      # Grace period for "Day 0" Fine-Tuning (20 minutes)
       start_period: 2400s

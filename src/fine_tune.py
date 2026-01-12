@@ -60,7 +60,7 @@ def train_qlora_model():
     # 2. Tokenizer (Fix Padding Issue)
     tokenizer = AutoTokenizer.from_pretrained(Config.LLM_MODEL_ID, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
-    tokenizer.padding_side = "right" # Fixed for fp16 training
+    tokenizer.padding_side = "right"
 
     # 3. Model (Optimized 4-bit)
     bnb_config = BitsAndBytesConfig(
@@ -81,21 +81,21 @@ def train_qlora_model():
     model.config.use_cache = False 
     model.config.pretraining_tp = 1
 
-    # 4. LoRA Config (The Warning Fix)
+    # 4. LoRA Config
     peft_config = LoraConfig(
-        lora_alpha=32, # Higher alpha = stronger adaptation
+        lora_alpha=32, 
         lora_dropout=0.05,
-        r=16, # Rank 16 is better for reasoning than 8
+        r=16, 
         bias="none",
-        task_type=TaskType.CAUSAL_LM, # Explicitly set task type
+        task_type=TaskType.CAUSAL_LM,
         target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"] # Target ALL linear layers
     )
 
-    # 5. Training Args (Speed & Stability)
+    # 5. Training Args
     training_args = TrainingArguments(
         output_dir=Config.ADAPTER_PATH,
         num_train_epochs=1,
-        per_device_train_batch_size=4, # Increased slightly for stability
+        per_device_train_batch_size=4, 
         gradient_accumulation_steps=2,
         optim="paged_adamw_32bit",
         logging_steps=10,
@@ -103,7 +103,7 @@ def train_qlora_model():
         fp16=True,
         max_grad_norm=0.3,
         warmup_ratio=0.03,
-        lr_scheduler_type="cosine", # Cosine decay is better for convergence
+        lr_scheduler_type="cosine", 
         group_by_length=True,
         report_to="none"
     )
@@ -113,7 +113,7 @@ def train_qlora_model():
         train_dataset=dataset,
         peft_config=peft_config,
         dataset_text_field="text",
-        max_seq_length=1024, # Increased context
+        max_seq_length=1024, 
         tokenizer=tokenizer,
         args=training_args,
         packing=False,

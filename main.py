@@ -44,8 +44,6 @@ class PredictionInput(BaseModel):
 class QueryInput(BaseModel):
     query: str
 
-# --- Optimized Startup Logic ---
-
 def run_initial_training():
     """Runs training, then loads the pipeline"""
     global CURRENT_STATE
@@ -55,12 +53,8 @@ def run_initial_training():
         train_qlora_model()
         logger.info("✅ Training Complete. Releasing Memory...")
         
-        # --- DOUBLE TAP MEMORY CLEANUP ---
         gc.collect()
-        torch.cuda.empty_cache()
-        # ---------------------------------
-        
-        # Load the pipeline only AFTER training frees the GPU
+        torch.cuda.empty_cache()        
         logger.info("🤖 Loading Inference Pipeline...")
         assistant.load_pipeline()
         
@@ -68,7 +62,6 @@ def run_initial_training():
         logger.info("⚡ STATE: SYSTEM READY.")
     except Exception as e:
         logger.error(f"❌ Training Failed: {e}")
-        # Even if training fails, try to load base model
         gc.collect()
         torch.cuda.empty_cache()
         assistant.load_pipeline()
@@ -110,8 +103,6 @@ def startup_event():
         assistant.load_pipeline()
         CURRENT_STATE = SystemState.READY
 
-# --- Endpoints ---
-
 @app.get("/health")
 def health():
     return {
@@ -128,7 +119,6 @@ def metrics():
 def predict_discount(data: PredictionInput):
     with PerformanceMonitor.track_latency("/predict_discount"):
         try:
-            # Pass the entire Pydantic object as a dict
             input_dict = data.dict()
             discount = predictor.predict(input_dict)
             return {"predicted_discount": round(float(discount), 2)}
@@ -137,13 +127,11 @@ def predict_discount(data: PredictionInput):
 
 @app.post("/explain_prediction")
 def explain_prediction(data: PredictionInput):
-    # Pass the entire Pydantic object as a dict
     input_dict = data.dict()
     return predictor.explain(input_dict)
 
 @app.post("/answer_question")
 def answer_question(data: QueryInput):
-    # RAG depends on the LLM, which might be training
     if CURRENT_STATE == SystemState.TRAINING:
         return JSONResponse(
             status_code=503, 

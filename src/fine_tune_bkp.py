@@ -67,7 +67,6 @@ def train_qlora_model():
     print("   ⚙️ Loading Tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(Config.LLM_MODEL_ID, trust_remote_code=True, use_fast=True)
     
-    # --- THE FIX ---
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right" 
     # ---------------
@@ -104,7 +103,7 @@ def train_qlora_model():
     training_args = TrainingArguments(
         output_dir=Config.ADAPTER_PATH,
         num_train_epochs=1,
-        per_device_train_batch_size=2,  # Keep low for GPU memory safety
+        per_device_train_batch_size=2,  
         gradient_accumulation_steps=4,
         optim="paged_adamw_32bit",
         save_steps=50,
@@ -114,7 +113,7 @@ def train_qlora_model():
         fp16=True,
         bf16=False,
         max_grad_norm=0.3,
-        max_steps=10000, # Short run for demo (remove or increase for full training)
+        max_steps=10000,
         warmup_ratio=0.03,
         group_by_length=True,
         lr_scheduler_type="constant",

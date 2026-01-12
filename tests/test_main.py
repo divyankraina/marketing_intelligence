@@ -10,7 +10,7 @@ from src.monitoring import PerformanceMonitor
 from main import app
 
 
-# --- FIXTURES (Setup Data) ---
+
 @pytest.fixture
 def sample_data():
     return pd.DataFrame({
@@ -86,7 +86,7 @@ def test_prediction_bounds(trained_predictor):
         "about_product": "Test",
         "review_content": "Test"
     }
-    # Pass as dict (corrected API)
+    # Pass as dict
     pred = trained_predictor.predict(input_data)
     assert 0 <= pred <= 100, f"Prediction {pred} is out of realistic bounds!"
 
@@ -104,11 +104,7 @@ def test_price_sensitivity(trained_predictor):
     pred_iphone = trained_predictor.predict(iphone)
     pred_cable = trained_predictor.predict(cable)
     
-    # This is a soft assertion, but generally true in retail
-    # If this fails, your model might be underfitting
     print(f"iPhone Disc: {pred_iphone:.2f}%, Cable Disc: {pred_cable:.2f}%")
-    # assert pred_cable > pred_iphone 
-
 # --- 3. API INTEGRATION TESTS (End-to-End) ---
 
 def test_api_health(client):
@@ -136,31 +132,26 @@ def test_api_predict_discount(client):
 def test_api_validation_error(client):
     """Ensure API rejects bad data (missing required field)"""
     payload = {
-        "category": "Electronics", 
-        "actual_price": "NOT_A_NUMBER" # Bad type
+        "category": "Electronics",
+        "actual_price": "NOT_A_NUMBER"
     }
     response = client.post("/predict_discount", json=payload)
-    assert response.status_code == 422 # Unprocessable Entity
+    assert response.status_code == 422
 
 # --- 4. DRIFT DETECTION TESTS ---
 
 def test_drift_trigger(trained_predictor):
     """Ensure the drift detector fires when data changes drastically"""
-    # 1. Train on normal data (prices ~100-10,000) - done in fixture
     
-    # 2. Create 'Alien' data (prices ~1,000,000)
     drift_data = pd.DataFrame({
         'actual_price': [1000000.0] * 50, 
         'rating': [1.0] * 50,
         'product_name': ['Gold'] * 50,
-        'discount_percentage': [0] * 50 # Required for fit
+        'discount_percentage': [0] * 50 
     })
     
-    # 3. Check drift
     is_drifting = trained_predictor.check_and_retrain(drift_data)
     
-    # Note: It might return True (Drifted) or False (if KS test p-value > threshold)
-    # We just want to ensure it runs without crashing
     assert isinstance(is_drifting, bool)
     
 
@@ -194,7 +185,6 @@ def test_feature_engineering(sample_data):
 def test_full_pipeline_cv(sample_data):
     """Test that training runs with CV without crashing"""
     predictor = DiscountPredictor()
-    # We need enough data for 5-fold CV, duplication for test purposes
     large_data = pd.concat([sample_data] * 4, ignore_index=True) 
     
     predictor.train(large_data)

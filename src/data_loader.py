@@ -9,8 +9,6 @@ def load_or_generate_data():
         print(f"Loading data from {DATA_PATH}...")
         df = pd.read_csv(DATA_PATH)
         
-        # Basic Pre-Cleaning (Robust cleaning is also in ML Pipeline)
-        # We do minimal cleaning here to ensure RAG and ML both get usable data
         if 'discount_percentage' in df.columns:
             df['discount_percentage'] = (
                 df['discount_percentage'].astype(str).str.replace('%', '')
@@ -34,5 +32,4 @@ def load_or_generate_data():
     
     print("Dataset not found. Generating synthetic data...")
     os.makedirs("data", exist_ok=True)
-    # ... (Synthetic generation code remains same as before) ...
-    return pd.DataFrame() # Fallback
+    return pd.DataFrame() 

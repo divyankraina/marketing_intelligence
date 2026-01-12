@@ -26,9 +26,9 @@ MODEL_PATH = "models/discount_predictor.joblib"
 DRIFT_PATH = "models/drift_stats.joblib"
 EXPLAINER_PATH = "models/surrogate_explainer.joblib"
 
-# ==========================================
-# 1. Transformers (Unchanged)
-# ==========================================
+# ===============
+# 1. Transformers 
+# ===============
 
 class DataCleaner(BaseEstimator, TransformerMixin):
     def fit(self, X, y=None): return self
@@ -110,7 +110,7 @@ class KMeansFeaturizer(BaseEstimator, TransformerMixin):
         return self.kmeans.predict(X_scaled).reshape(-1, 1)
 
 # ==========================================
-# 2. Main Predictor (Fixed Convergence)
+# 2. Main Predictor 
 # ==========================================
 
 class DiscountPredictor:
@@ -162,13 +162,12 @@ class DiscountPredictor:
     def _tune_base_models(self, X_processed, y):
         print("   ✂️  Running Feature Selection (Robust ElasticNetCV)...")
         
-        # FIX: Replaced LassoCV with ElasticNetCV and increased max_iter/tol
-        # l1_ratio=0.9 behaves like Lasso but is more stable with correlated features
+        
         selection_model = ElasticNetCV(
             cv=5, 
             random_state=42, 
-            max_iter=10000,   # Increased from 1000 to prevent convergence warning
-            tol=1e-3,         # Relaxed tolerance slightly
+            max_iter=10000,   
+            tol=1e-3,         
             l1_ratio=0.9
         )
         
@@ -256,12 +255,7 @@ class DiscountPredictor:
             'neg_mean_absolute_percentage_error',
             'max_error']
         scores = cross_validate(self.model, X, y, cv=cv, scoring=scoring, n_jobs=1, verbose=3)
-        # print(f"   🔹 R²: {scores['test_r2'].mean():.4f} (±{scores['test_r2'].std():.4f})")
-        # print(f"   🔹 RMSE: {scores['test_neg_root_mean_squared_error'].mean():.4f} (±{scores['test_root_mean_squared_error'].std():.4f})")
-        # print(f"   🔹 MAPE: {scores['test_neg_mean_absolute_percentage_error'].mean():.4f} (±{scores['test_mean_absolute_percentage_error'].std():.4f})")
-        # print(f"   🔹 Max Error: {scores['test_neg_max_error'].mean():.4f} (±{scores['test_max_error'].std():.4f})")
-        # print(f"   🔹 MSE: {scores['test_neg_mean_squared_error'].mean():.4f} (±{scores['test_neg_mean_squared_error'].std():.4f})")
-        # print(f"   🔹 MAE: {scores['test_neg_mean_absolute_error'].mean():.4f} (±{scores['test_neg_mean_absolute_error'].std():.4f})")
+        
         for item in scores:
             print(f"   🔹 {item}: {abs(scores[item].mean()):.4f} (±{abs(scores[item].std()):.4f})")
         
@@ -314,10 +308,8 @@ class DiscountPredictor:
         """
         if not self.model: raise Exception("Model not loaded")
         
-        # Convert single dict to DataFrame (1 row)
         data = pd.DataFrame([input_data])
         
-        # Ensure all expected columns exist (fill missing with defaults)
         expected_cols = ['category', 'actual_price', 'rating', 'rating_count', 'product_name', 'about_product', 'review_content']
         for col in expected_cols:
             if col not in data.columns:
@@ -334,19 +326,16 @@ class DiscountPredictor:
         data = pd.DataFrame([input_data])
         
         try:
-            # Transform raw data through the pipeline steps to get shap-ready format
             d = self.surrogate_pipeline.named_steps['cleaner'].transform(data)
             d = self.surrogate_pipeline.named_steps['engineer'].transform(d)
             d = self.surrogate_pipeline.named_steps['prep'].transform(d)
             
             shap_vals = self.explainer.shap_values(d)
             
-            # Get feature names
             cat_names = self.surrogate_pipeline.named_steps['prep'].named_transformers_['cat'].get_feature_names_out(['cat_l0', 'cat_l1'])
             names = ['actual_price', 'rating', 'rating_count'] + list(cat_names)
             
             impacts = {}
-            # safely map shap values to names
             if len(shap_vals[0]) == len(names):
                 for i in np.argsort(np.abs(shap_vals[0]))[::-1][:5]: 
                     name_clean = names[i].replace("cat_l0_", "Category: ").replace("cat_l1_", "Sub-Cat: ")

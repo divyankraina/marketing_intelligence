@@ -10,9 +10,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline, BitsAndB
 from peft import PeftModel
 from src.config import Config
 
-# Constants
-
-
 class DataIngestionUtils:
     """Helper class to ensure data is strictly typed before storage."""
     
@@ -32,14 +29,14 @@ class DataIngestionUtils:
     def clean_rating(val):
         """Converts '4.5|5' or '4.3' to float 4.3"""
         if isinstance(val, (int, float)): return float(val)
-        val = str(val).split('|')[0] # Handle '4.5|100' format
+        val = str(val).split('|')[0] 
         return DataIngestionUtils.clean_currency(val)
 
 class MarketingAssistant:
     def __init__(self):
         self.model_id = Config.LLM_MODEL_ID
         self.pipe = None
-        self.df = None  # The Structured Knowledge Base
+        self.df = None  
 
     def _prepare_grounded_text(self, row):
         """
@@ -48,7 +45,6 @@ class MarketingAssistant:
         """
         text_parts = []
         for col, val in row.items():
-            # Skip internal/empty fields
             if col in ['combined_text'] or pd.isna(val) or str(val).strip() == "":
                 continue
             
@@ -60,8 +56,7 @@ class MarketingAssistant:
     def ingest_data(self, df):
         print(f"📚 Ingesting with SOTA Embeddings ({Config.EMBEDDING_MODEL})...")
         
-        # 1. STRICT TYPE CLEANING (The 'Solid' Part)
-        # We explicitly cast key columns to ensure sorting works later
+        # 1. Data Cleaning
         if 'discounted_price' in df.columns:
             df['discounted_price'] = df['discounted_price'].apply(DataIngestionUtils.clean_currency)
         if 'actual_price' in df.columns:
@@ -75,7 +70,7 @@ class MarketingAssistant:
         if 'product_id' in df.columns:
             df = df.drop_duplicates(subset=['product_id'])
         
-        # Save to Parquet (Preserves dtypes perfectly, unlike CSV)
+        # Save to Parquet
         print(f"   💾 Saving Structured Metadata to {Config.METADATA_STORE_PATH}...")
         df.to_parquet(Config.METADATA_STORE_PATH)
         self.df = df
@@ -94,7 +89,7 @@ class MarketingAssistant:
         embeddings = HuggingFaceEmbeddings(
             model_name=Config.EMBEDDING_MODEL,
             model_kwargs={'device': 'cuda'},
-            encode_kwargs={'normalize_embeddings': True} # Critical for mxbai
+            encode_kwargs={'normalize_embeddings': True} 
         )
         vectorstore = FAISS.from_documents(docs, embeddings)
         vectorstore.save_local(Config.INDEX_PATH)
@@ -164,7 +159,7 @@ class MarketingAssistant:
             model=model, 
             tokenizer=tokenizer, 
             max_new_tokens=512, 
-            temperature=0.1, # Precision mode
+            temperature=0.1,
             repetition_penalty=1.1
         )
 
