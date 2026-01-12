@@ -77,7 +77,6 @@ def train_qlora_model():
         quantization_config=bnb_config,
         device_map="auto",
         trust_remote_code=True,
-        attn_implementation="flash_attention_2" if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else "eager"
     )
     
     model.gradient_checkpointing_enable()
