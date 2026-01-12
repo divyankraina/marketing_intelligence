@@ -8,7 +8,7 @@ from transformers import (
     BitsAndBytesConfig, 
     TrainingArguments
 )
-from peft import LoraConfig, get_peft_model, TaskType
+from peft import LoraConfig, get_peft_model, TaskType, prepare_model_for_kbit_training
 from trl import SFTTrainer
 from src.config import Config
 from src.data_loader import load_or_generate_data
@@ -23,10 +23,9 @@ def generate_reasoning_dataset(df):
         cat = row.get('category', 'General')
         price = row.get('discounted_price', 0)
         rating = row.get('rating', 0)
-        desc = str(row.get('about_product', ''))[:500]
+        desc = str(row.get('about_product', ''))[:300] 
         
-        # 1. The "Analyst" Task (Why is this good?)
-        # Teaches the model to connect features to benefits
+        # 1. The "Analyst" Task
         data.append({
             "text": (
                 f"<s>[INST] Analyze the market appeal of: {name} [/INST] "
@@ -36,33 +35,36 @@ def generate_reasoning_dataset(df):
             )
         })
 
-        # 2. The "Comparison" Task (Implicit)
-        # Teaches the model to judge quality based on data
+        # 2. The "Comparison" Task
         verdict = "Premium choice" if float(rating) > 4.3 else "Budget-friendly option"
         data.append({
             "text": (
                 f"<s>[INST] Evaluate the quality-to-price ratio for {name}. [/INST] "
                 f"Rating: {rating}/5. Price: {price}. Verdict: {verdict}. "
-                f"Reasoning: High user satisfaction suggests the features mentioned ({desc[:50]}...) work as advertised. </s>"
+                f"Reasoning: High user satisfaction suggests the features mentioned work as advertised. </s>"
             )
         })
         
     return Dataset.from_list(data)
 
 def train_qlora_model():
-    print("🚀 Starting Grandmaster Fine-Tuning...")
+    print("🚀 Starting Memory-Optimized Fine-Tuning...")
     
+    # 0. Aggressive Cleanup before starting
+    gc.collect()
+    torch.cuda.empty_cache()
+
     # 1. Load & Prep Data
     df = load_or_generate_data()
     dataset = generate_reasoning_dataset(df)
     print(f"   ✅ Generated {len(dataset)} reasoning examples.")
 
-    # 2. Tokenizer (Fix Padding Issue)
+    # 2. Tokenizer
     tokenizer = AutoTokenizer.from_pretrained(Config.LLM_MODEL_ID, trust_remote_code=True)
     tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
 
-    # 3. Model (Optimized 4-bit)
+    # 3. Model (4-bit)
     bnb_config = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -75,35 +77,43 @@ def train_qlora_model():
         quantization_config=bnb_config,
         device_map="auto",
         trust_remote_code=True,
+        attn_implementation="flash_attention_2" if torch.cuda.is_available() and torch.cuda.get_device_capability()[0] >= 8 else "eager"
     )
     
-    # Critical for LoRA stability
+    model.gradient_checkpointing_enable()
+    model = prepare_model_for_kbit_training(model)
+    
     model.config.use_cache = False 
     model.config.pretraining_tp = 1
 
     # 4. LoRA Config
     peft_config = LoraConfig(
-        lora_alpha=32, 
+        lora_alpha=32,
         lora_dropout=0.05,
-        r=16, 
+        r=16,
         bias="none",
         task_type=TaskType.CAUSAL_LM,
-        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"] # Target ALL linear layers
+        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
     )
 
-    # 5. Training Args
+    # 5. Training Args (Memory Safe Mode)
     training_args = TrainingArguments(
         output_dir=Config.ADAPTER_PATH,
         num_train_epochs=1,
-        per_device_train_batch_size=4, 
-        gradient_accumulation_steps=2,
+        
+        # --- MEMORY OPTIMIZATIONS ---
+        per_device_train_batch_size=1,  
+        gradient_accumulation_steps=8,  
+        gradient_checkpointing=True,
+        # ----------------------------
+        
         optim="paged_adamw_32bit",
-        logging_steps=10,
+        logging_steps=5,
         learning_rate=2e-4,
         fp16=True,
         max_grad_norm=0.3,
         warmup_ratio=0.03,
-        lr_scheduler_type="cosine", 
+        lr_scheduler_type="cosine",
         group_by_length=True,
         report_to="none"
     )
@@ -113,13 +123,13 @@ def train_qlora_model():
         train_dataset=dataset,
         peft_config=peft_config,
         dataset_text_field="text",
-        max_seq_length=1024, 
+        max_seq_length=512,
         tokenizer=tokenizer,
         args=training_args,
         packing=False,
     )
 
-    print("   🏋️ Training...")
+    print("   🏋️ Training (Gradient Checkpointing Enabled)...")
     trainer.train()
     
     print("   💾 Saving...")
@@ -130,3 +140,6 @@ def train_qlora_model():
     gc.collect()
     torch.cuda.empty_cache()
     print("✅ Fine-Tuning Complete.")
+
+if __name__ == "__main__":
+    train_qlora_model()
