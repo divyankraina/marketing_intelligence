@@ -133,47 +133,75 @@ A production-grade Machine Learning & RAG system designed for **E-commerce Marke
 
 ### Dataset Requirements
 
-Place your Amazon Sales Dataset (or similar e-commerce dataset) in `data/amazon.csv`. The dataset should contain the following columns:
+**Download Dataset:**
+1. Download the Amazon Sales Dataset from [Kaggle](https://www.kaggle.com/datasets/karkavelrajaj/amazon-sales-dataset)
+2. Place the CSV file in `data/amazon.csv`
+3. Ensure the file has the required columns (see below)
 
 **Required Columns:**
-- `product_id` - Unique product identifier
-- `product_name` - Product name/title
-- `category` - Product category (pipe-separated, e.g., "Electronics|Mobiles")
-- `actual_price` - Original product price
-- `discounted_price` - Discounted price
-- `discount_percentage` - Discount percentage (target variable)
-- `rating` - Product rating (0-5)
-- `rating_count` - Number of ratings
-- `about_product` - Product description
-- `review_content` - Review text (optional)
+- `product_id` - Unique product identifier (string)
+- `product_name` - Product name/title (string)
+- `category` - Product category, pipe-separated hierarchy (e.g., "Electronics|Mobiles|Smartphones")
+- `actual_price` - Original product price (numeric, can include currency symbols like ₹)
+- `discounted_price` - Discounted price (numeric, optional but recommended)
+- `discount_percentage` - Discount percentage, target variable (numeric or string with %, e.g., "10%" or 10)
+- `rating` - Product rating (0-5, numeric or string)
+- `rating_count` - Number of ratings (integer)
+- `about_product` - Product description (string, optional but recommended)
+- `review_content` - Review text (string, optional)
 
-**Example Dataset:**
+**Example Dataset Format:**
 ```csv
-product_id,product_name,category,actual_price,discounted_price,discount_percentage,rating,rating_count,about_product
-P001,iPhone 13,Electronics|Mobiles,70000,63000,10%,4.8,5000,Latest iPhone with A15 chip
-P002,Samsung TV,Electronics|TVs,50000,40000,20%,4.5,2000,4K Smart TV
+product_id,product_name,category,actual_price,discounted_price,discount_percentage,rating,rating_count,about_product,review_content
+P001,iPhone 13,Electronics|Mobiles,₹70,000,63000,10%,4.8,5000,Latest iPhone with A15 chip,Great phone
+P002,Samsung TV,Electronics|TVs,₹50,000,40000,20%,4.5,2000,4K Smart TV,Excellent picture quality
 ```
+
+**Data Quality Notes:**
+- The system automatically handles currency symbols (₹), commas, and percentage signs
+- Missing values are handled gracefully
+- At least 100 samples recommended for meaningful training
+- More data = better model performance
 
 ### 1. Build and Run with Docker
 
+**Prerequisites:**
+- Docker and Docker Compose installed
+- NVIDIA Docker runtime (nvidia-docker2) for GPU support
+- At least 12GB GPU VRAM recommended
+- CUDA 12.1+ compatible GPU
+
 ```bash
-# Clone or navigate to the project directory
-cd marketing_intelligence
+# Navigate to the project directory
+cd rpj  # or your project directory name
+
+# Ensure data file exists
+ls data/amazon.csv  # Should show the dataset file
 
 # Build and start the container
 docker-compose up --build
 
-# Or run in detached mode
+# Or run in detached mode (recommended)
 docker-compose up -d --build
 
-# View logs
+# View logs in real-time
 docker-compose logs -f
+
+# Check container status
+docker-compose ps
 
 # Stop the container
 docker-compose down
+
+# Stop and remove volumes (clean restart)
+docker-compose down -v
 ```
 
-**Note:** On the first run, the system will enter **Training Mode** to fine-tune the adapter. The API will return 503 until training completes (~10-15 mins).
+**Important Notes:**
+- On the first run, the system will enter **Training Mode** to fine-tune the LLM adapter. The API will return 503 until training completes (~10-15 minutes depending on GPU).
+- The first startup may take 20-30 minutes as it downloads models and trains.
+- Models and data are persisted in `./models` and `./data` directories (mounted as volumes).
+- GPU is required for LLM inference. CPU-only mode is not supported for the RAG endpoint.
 
 ### 2. Verify Installation
 
@@ -191,17 +219,33 @@ curl http://localhost:8000/health
 
 ### 3. Local Development (Optional)
 
+**Prerequisites:**
+- Python 3.10+ (Python 3.13 recommended as per pyproject.toml)
+- CUDA 12.1+ with compatible GPU drivers
+- At least 12GB GPU VRAM
+
 ```bash
 # Create virtual environment
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-# Install dependencies
+# Upgrade pip
+pip install --upgrade pip
+
+# Install dependencies (this may take 10-15 minutes)
 pip install -r requirements.txt
 
+# Ensure data file exists
+# Place your amazon.csv in data/amazon.csv
+
 # Run the application
-uvicorn main:app --host 0.0.0.0 --port 8000
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+# Or run with more workers (production-like)
+uvicorn main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
+
+**Note:** Local development requires GPU access. The system will automatically detect GPU availability. If no GPU is available, the RAG endpoint will fail.
 
 ---
 
@@ -924,15 +968,57 @@ spec:
 - Verify `discount_percentage` is correctly calculated
 - Retrain with more data: `POST /retrain_model`
 
+### 8. Docker build fails
+
+**Cause:** Various build issues
+
+**Fix:**
+- Ensure Docker has access to GPU: `docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi`
+- Check disk space: `df -h` (need at least 20GB free)
+- Clear Docker cache: `docker system prune -a`
+- Rebuild from scratch: `docker-compose build --no-cache`
+
+### 9. Container exits immediately
+
+**Cause:** Startup errors or missing dependencies
+
+**Fix:**
+- Check logs: `docker-compose logs`
+- Verify data file exists: `ls -la data/amazon.csv`
+- Check GPU access: `docker-compose exec marketing-api nvidia-smi`
+- Review startup logs for specific error messages
+
+### 10. Port 8000 already in use
+
+**Cause:** Another service using port 8000
+
+**Fix:**
+- Change port in `docker-compose.yml`: `"8001:8000"`
+- Or stop conflicting service: `lsof -ti:8000 | xargs kill -9` (Linux/Mac)
+
 ---
 
 ## 🔒 Security & Safety
 
-- **Input Validation:** All inputs are sanitized and validated
-- **Bounds Checking:** Predictions are clamped to reasonable ranges (0-100%)
-- **Error Handling:** Comprehensive error handling prevents information leakage
-- **Rate Limiting:** Consider adding rate limiting in production (not included by default)
-- **Authentication:** Add API keys or OAuth for production use
+### Input Validation
+- **Type Checking:** All inputs are validated for correct types
+- **Bounds Checking:** Numeric values are validated (prices ≥ 0, ratings 0-5, etc.)
+- **Text Sanitization:** Text fields are sanitized to prevent injection attacks
+- **Length Limits:** Text fields are limited to 1000 characters to prevent abuse
+- **Null Byte Removal:** Control characters are removed from text inputs
+
+### Prediction Safety
+- **Bounds Clamping:** Predictions are clamped to reasonable ranges (0-100%)
+- **Validation Errors:** Invalid inputs return 400 Bad Request with clear error messages
+- **No Information Leakage:** Error messages don't expose internal implementation details
+
+### Production Recommendations
+- **Rate Limiting:** Add rate limiting using nginx, API Gateway, or FastAPI middleware
+- **Authentication:** Implement API keys or OAuth2 for production use
+- **HTTPS:** Always use HTTPS in production (configure reverse proxy)
+- **CORS:** Configure CORS appropriately for your frontend domain
+- **Monitoring:** Set up alerts for unusual patterns or errors
+- **Backup:** Regularly backup model files and data
 
 ---
 

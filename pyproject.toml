@@ -1,7 +1,7 @@
 [project]
 name = "marketing-intelligence"
 version = "0.1.0"
-description = "Add your description here"
+description = "Production-grade Marketing Intelligence System with ML and RAG"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.10"
 dependencies = []

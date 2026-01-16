@@ -18,6 +18,7 @@ from sklearn.linear_model import LassoCV, RidgeCV, ElasticNetCV
 from sklearn.impute import SimpleImputer
 from sklearn.ensemble import RandomForestRegressor, StackingRegressor
 from sklearn.cluster import KMeans
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from category_encoders import TargetEncoder, MEstimateEncoder
 from sentence_transformers import SentenceTransformer
 from src.monitoring import PerformanceMonitor
@@ -177,7 +178,6 @@ class DiscountPredictor:
         
         n_dropped = X_processed.shape[1] - X_selected.shape[1]
         print(f"      📉 Dropped {n_dropped} noisy features. Tuning on {X_selected.shape[1]} features.")
-        print(X_selected)
         print("   🔎 Tuning Hyperparameters (RandomizedSearch)...")
         
         # XGBoost
@@ -302,8 +302,11 @@ class DiscountPredictor:
             self.surrogate_pipeline = data['pipeline']
             self.explainer = data['explainer']
 
-    def _validate_and_sanitize_input(self, input_data: dict):
+    def _validate_and_sanitize_input(self, input_data: dict) -> dict:
         """Safety validation: sanitize and validate input data"""
+        if not isinstance(input_data, dict):
+            raise ValueError("Input data must be a dictionary")
+        
         sanitized = input_data.copy()
         
         # Ensure required fields exist
@@ -312,21 +315,59 @@ class DiscountPredictor:
             if col not in sanitized:
                 sanitized[col] = "" if "price" not in col and "rating" not in col else 0
         
-        # Sanitize numeric fields
-        if isinstance(sanitized.get('actual_price'), (int, float)):
-            sanitized['actual_price'] = max(0, float(sanitized['actual_price']))
-        else:
-            sanitized['actual_price'] = 0
+        # Sanitize numeric fields with bounds checking
+        try:
+            if isinstance(sanitized.get('actual_price'), (int, float)):
+                price = float(sanitized['actual_price'])
+                if price < 0:
+                    raise ValueError(f"Price cannot be negative: {price}")
+                if price > 1e10:  # 10 billion upper bound
+                    raise ValueError(f"Price exceeds maximum allowed value: {price}")
+                sanitized['actual_price'] = price
+            else:
+                # Try to parse string
+                try:
+                    price_str = str(sanitized.get('actual_price', '0')).replace('₹', '').replace(',', '').strip()
+                    price = float(price_str) if price_str else 0.0
+                    sanitized['actual_price'] = max(0, price)
+                except (ValueError, TypeError):
+                    sanitized['actual_price'] = 0.0
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid actual_price: {e}")
         
-        if isinstance(sanitized.get('rating'), (int, float)):
-            sanitized['rating'] = max(0, min(5, float(sanitized['rating'])))  # Clamp to 0-5
-        else:
-            sanitized['rating'] = 0
+        try:
+            if isinstance(sanitized.get('rating'), (int, float)):
+                rating = float(sanitized['rating'])
+                if rating < 0 or rating > 5:
+                    raise ValueError(f"Rating must be between 0 and 5: {rating}")
+                sanitized['rating'] = rating
+            else:
+                rating_str = str(sanitized.get('rating', '0')).split('|')[0].strip()
+                try:
+                    rating = float(rating_str) if rating_str else 0.0
+                    sanitized['rating'] = max(0, min(5, rating))
+                except (ValueError, TypeError):
+                    sanitized['rating'] = 0.0
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid rating: {e}")
         
-        if isinstance(sanitized.get('rating_count'), (int, float)):
-            sanitized['rating_count'] = max(0, int(sanitized['rating_count']))
-        else:
-            sanitized['rating_count'] = 0
+        try:
+            if isinstance(sanitized.get('rating_count'), (int, float)):
+                count = int(sanitized['rating_count'])
+                if count < 0:
+                    raise ValueError(f"Rating count cannot be negative: {count}")
+                if count > 1e9:  # 1 billion upper bound
+                    raise ValueError(f"Rating count exceeds maximum allowed value: {count}")
+                sanitized['rating_count'] = count
+            else:
+                count_str = str(sanitized.get('rating_count', '0')).replace(',', '').strip()
+                try:
+                    count = int(float(count_str)) if count_str else 0
+                    sanitized['rating_count'] = max(0, count)
+                except (ValueError, TypeError):
+                    sanitized['rating_count'] = 0
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid rating_count: {e}")
         
         # Sanitize text fields
         for col in ['product_name', 'category', 'about_product', 'review_content']:
@@ -334,32 +375,51 @@ class DiscountPredictor:
                 sanitized[col] = str(sanitized.get(col, ""))
             # Limit text length to prevent abuse
             sanitized[col] = sanitized[col][:1000]
+            # Remove null bytes and other control characters
+            sanitized[col] = sanitized[col].replace('\x00', '').replace('\r', ' ').replace('\n', ' ')
         
         return sanitized
 
-    def predict(self, input_data: dict):
+    def predict(self, input_data: dict) -> float:
         """
         Accepts a dictionary of inputs to match the training dataframe structure.
         Includes safety validation.
+        
+        Args:
+            input_data: Dictionary with product information
+            
+        Returns:
+            Predicted discount percentage (0-100)
         """
-        if not self.model: raise Exception("Model not loaded")
+        if not self.model:
+            raise ValueError("Model not loaded. Please train or load the model first.")
         
         # Safety validation
         sanitized = self._validate_and_sanitize_input(input_data)
         data = pd.DataFrame([sanitized])
         
-        prediction = self.model.predict(data)[0]
+        try:
+            prediction = self.model.predict(data)[0]
+        except Exception as e:
+            raise ValueError(f"Prediction failed: {str(e)}")
         
         # Safety: clamp prediction to reasonable bounds
         prediction = max(0, min(100, float(prediction)))
         
         return prediction
 
-    def explain(self, input_data: dict):
+    def explain(self, input_data: dict) -> dict:
         """
         Updated explainer to use full text context
+        
+        Args:
+            input_data: Dictionary with product information
+            
+        Returns:
+            Dictionary with explanation containing 'base' and 'drivers' keys
         """
-        if not self.explainer: return {"error": "Explainer not initialized"}
+        if not self.explainer:
+            return {"error": "Explainer not initialized"}
         
         data = pd.DataFrame([input_data])
         
@@ -383,14 +443,35 @@ class DiscountPredictor:
         except Exception as e:
             return {"error": f"Explanation failed: {str(e)}"}
 
-    def check_and_retrain(self, new_df_batch):
+    def check_and_retrain(self, new_df_batch: pd.DataFrame) -> bool:
+        """Check for drift and retrain if detected
+        
+        Args:
+            new_df_batch: DataFrame with new data to check for drift
+            
+        Returns:
+            True if drift detected and retraining triggered, False otherwise
+        """
+        if not isinstance(new_df_batch, pd.DataFrame):
+            raise ValueError("new_df_batch must be a pandas DataFrame")
+        
         if self.drift_detector.check_drift(new_df_batch):
-            self.train(new_df_batch)
+            self.train(new_df_batch, tune=False)
             return True
         return False
     
-    def evaluate(self, test_df):
-        """Evaluate model performance on test data"""
+    def evaluate(self, test_df: pd.DataFrame) -> dict:
+        """Evaluate model performance on test data
+        
+        Args:
+            test_df: DataFrame with test data including 'discount_percentage' column
+            
+        Returns:
+            Dictionary with metrics: rmse, mae, r2, n_samples
+        """
+        if not isinstance(test_df, pd.DataFrame):
+            raise ValueError("test_df must be a pandas DataFrame")
+        
         if 'discount_percentage' not in test_df.columns:
             raise ValueError("Test data must contain 'discount_percentage' column")
         
