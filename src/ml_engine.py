@@ -302,20 +302,58 @@ class DiscountPredictor:
             self.surrogate_pipeline = data['pipeline']
             self.explainer = data['explainer']
 
+    def _validate_and_sanitize_input(self, input_data: dict):
+        """Safety validation: sanitize and validate input data"""
+        sanitized = input_data.copy()
+        
+        # Ensure required fields exist
+        expected_cols = ['category', 'actual_price', 'rating', 'rating_count', 'product_name', 'about_product', 'review_content']
+        for col in expected_cols:
+            if col not in sanitized:
+                sanitized[col] = "" if "price" not in col and "rating" not in col else 0
+        
+        # Sanitize numeric fields
+        if isinstance(sanitized.get('actual_price'), (int, float)):
+            sanitized['actual_price'] = max(0, float(sanitized['actual_price']))
+        else:
+            sanitized['actual_price'] = 0
+        
+        if isinstance(sanitized.get('rating'), (int, float)):
+            sanitized['rating'] = max(0, min(5, float(sanitized['rating'])))  # Clamp to 0-5
+        else:
+            sanitized['rating'] = 0
+        
+        if isinstance(sanitized.get('rating_count'), (int, float)):
+            sanitized['rating_count'] = max(0, int(sanitized['rating_count']))
+        else:
+            sanitized['rating_count'] = 0
+        
+        # Sanitize text fields
+        for col in ['product_name', 'category', 'about_product', 'review_content']:
+            if not isinstance(sanitized.get(col), str):
+                sanitized[col] = str(sanitized.get(col, ""))
+            # Limit text length to prevent abuse
+            sanitized[col] = sanitized[col][:1000]
+        
+        return sanitized
+
     def predict(self, input_data: dict):
         """
         Accepts a dictionary of inputs to match the training dataframe structure.
+        Includes safety validation.
         """
         if not self.model: raise Exception("Model not loaded")
         
-        data = pd.DataFrame([input_data])
+        # Safety validation
+        sanitized = self._validate_and_sanitize_input(input_data)
+        data = pd.DataFrame([sanitized])
         
-        expected_cols = ['category', 'actual_price', 'rating', 'rating_count', 'product_name', 'about_product', 'review_content']
-        for col in expected_cols:
-            if col not in data.columns:
-                data[col] = "" if "price" not in col and "rating" not in col else 0
-                
-        return self.model.predict(data)[0]
+        prediction = self.model.predict(data)[0]
+        
+        # Safety: clamp prediction to reasonable bounds
+        prediction = max(0, min(100, float(prediction)))
+        
+        return prediction
 
     def explain(self, input_data: dict):
         """
@@ -350,6 +388,36 @@ class DiscountPredictor:
             self.train(new_df_batch)
             return True
         return False
+    
+    def evaluate(self, test_df):
+        """Evaluate model performance on test data"""
+        if 'discount_percentage' not in test_df.columns:
+            raise ValueError("Test data must contain 'discount_percentage' column")
+        
+        y_true = test_df['discount_percentage'].astype(str).str.replace('%', '').str.strip()
+        y_true = pd.to_numeric(y_true, errors='coerce').fillna(0)
+        X_test = test_df.drop(columns=['discount_percentage'])
+        
+        mask = ~np.isnan(y_true)
+        X_test = X_test[mask]
+        y_true = y_true[mask]
+        
+        if len(X_test) == 0:
+            raise ValueError("No valid test samples after cleaning")
+        
+        # Predict using the model (which expects DataFrame)
+        y_pred = self.model.predict(X_test)
+        
+        rmse = np.sqrt(mean_squared_error(y_true, y_pred))
+        mae = mean_absolute_error(y_true, y_pred)
+        r2 = r2_score(y_true, y_pred)
+        
+        return {
+            'rmse': float(rmse),
+            'mae': float(mae),
+            'r2': float(r2),
+            'n_samples': int(len(y_true))
+        }
 # ==========================================
 # 2. Drift Detector
 # ==========================================

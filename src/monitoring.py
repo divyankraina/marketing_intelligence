@@ -1,4 +1,4 @@
-from prometheus_client import Counter, Histogram, Gauge
+from prometheus_client import Counter, Histogram, Gauge, Summary
 import time
 
 # Metrics Definitions
@@ -7,6 +7,11 @@ REQUEST_LATENCY = Histogram("app_request_latency_seconds", "Request latency", ["
 DRIFT_EVENTS = Counter("model_drift_events", "Number of times data drift was detected")
 MODEL_ACCURACY = Gauge("model_last_r2_score", "R2 Score of the latest model training")
 PREDICTION_VALUE = Histogram("predicted_discount_values", "Distribution of predicted discounts")
+RAG_ACCURACY = Gauge("rag_grounding_accuracy", "RAG grounding accuracy score")
+RAG_FACTUALITY = Gauge("rag_factuality_score", "RAG factuality score")
+RETRAINING_EVENTS = Counter("model_retraining_events", "Number of model retraining events")
+ERROR_COUNT = Counter("app_error_count", "Total error count", ["endpoint", "error_type"])
+SAFETY_CHECKS = Counter("safety_check_count", "Number of safety validation checks", ["status"])
 
 class PerformanceMonitor:
     @staticmethod
@@ -34,3 +39,25 @@ class PerformanceMonitor:
     @staticmethod
     def update_accuracy(r2_score):
         MODEL_ACCURACY.set(r2_score)
+    
+    @staticmethod
+    def update_rag_metrics(accuracy, factuality):
+        RAG_ACCURACY.set(accuracy)
+        RAG_FACTUALITY.set(factuality)
+    
+    @staticmethod
+    def log_retraining():
+        RETRAINING_EVENTS.inc()
+    
+    @staticmethod
+    def log_error(endpoint: str, error_type: str):
+        ERROR_COUNT.labels(endpoint=endpoint, error_type=error_type).inc()
+    
+    @staticmethod
+    def log_safety_check(safe: bool):
+        status = "safe" if safe else "unsafe"
+        SAFETY_CHECKS.labels(status=status).inc()
+    
+    @staticmethod
+    def log_prediction(value: float):
+        PREDICTION_VALUE.observe(value)

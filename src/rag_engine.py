@@ -200,3 +200,57 @@ class MarketingAssistant:
         final_answer = result[0]['generated_text'].split("[/INST]")[-1].strip()
         
         return {"answer": final_answer, "context": context_list}
+    
+    def evaluate_grounding_accuracy(self, test_queries: list):
+        """
+        Evaluate RAG grounding accuracy by checking if answers are factually correct
+        based on the retrieved context.
+        
+        Args:
+            test_queries: List of dicts with 'query' and 'expected_answer' keys
+            
+        Returns:
+            Dictionary with accuracy metrics
+        """
+        if not hasattr(self, 'pipe'): 
+            self.load_pipeline()
+        
+        correct = 0
+        total = len(test_queries)
+        factuality_scores = []
+        
+        for item in test_queries:
+            query = item.get('query', '')
+            expected = item.get('expected_answer', '').lower()
+            
+            try:
+                response = self.answer(query)
+                answer = response.get('answer', '').lower()
+                context = response.get('context', [])
+                
+                # Check if answer contains expected information
+                answer_contains_expected = expected in answer if expected else True
+                
+                # Check if answer is grounded in context
+                context_text = ' '.join(context).lower()
+                answer_grounded = any(word in context_text for word in answer.split()[:5]) if answer else False
+                
+                # Factuality score: combination of correctness and grounding
+                factuality = 1.0 if (answer_contains_expected and answer_grounded) else 0.5 if answer_grounded else 0.0
+                factuality_scores.append(factuality)
+                
+                if factuality >= 0.5:
+                    correct += 1
+                    
+            except Exception as e:
+                factuality_scores.append(0.0)
+        
+        accuracy = correct / total if total > 0 else 0.0
+        avg_factuality = sum(factuality_scores) / len(factuality_scores) if factuality_scores else 0.0
+        
+        return {
+            'grounding_accuracy': float(accuracy),
+            'average_factuality_score': float(avg_factuality),
+            'total_queries': total,
+            'correct_answers': correct
+        }
